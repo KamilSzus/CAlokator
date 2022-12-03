@@ -44,4 +44,12 @@ void heap_clean(void);
 
 int calculateObjectSum(struct element *ptr);
 
+struct element *findFirstFreeElement(size_t size);
+
+int heapExpand(size_t size);
+
+void heap_show(const struct heap_t *pheap);
+
+void setPlotekInBlock(struct element *ptr);
+
 #endif //SO2_HEAP_H

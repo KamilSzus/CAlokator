@@ -13,6 +13,8 @@ int main(void)
 
 #if 0
 #include "custom_unistd.h"
+#include "tested_declarations.h"
+#include "rdebug.h"
 
 int main(int argc, char **argv) {
 	int status = heap_setup();
