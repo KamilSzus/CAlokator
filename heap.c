@@ -20,22 +20,22 @@ struct element {
     struct element *p_next;// 8
 
     size_t size; //zalokowana ilość pamięci
-    short free; // 1-wolny; 0- zajety
+    short isFree; // 1-wolny; 0- zajety
     int objectSum;
 }__attribute__((aligned(8)));
 
 struct heap_t *heap_manager_t;
 
-void heap_show(const struct heap_t* pheap) {
+void heapShow(const struct heap_t *pheap) {
     if (pheap == NULL)
         return;
 
-    const struct element* pcurrent;
+    const struct element *pcurrent;
     int counter = 0;
     int free_count = 0;
     for (pcurrent = pheap->p_head; pcurrent != NULL; pcurrent = pcurrent->p_next) {
-        printf("Blok %d : %zu bajtów, stan %s\n", ++counter, pcurrent->size,pcurrent->free ? "WOLNY" : "ZAJETY");
-        free_count += pcurrent->free ? pcurrent->size : 0;
+        printf("Blok %d : %zu bajtów, stan %s\n", ++counter, pcurrent->size, pcurrent->isFree ? "WOLNY" : "ZAJETY");
+        free_count += pcurrent->isFree ? pcurrent->size : 0;
     }
     printf("Na stercie jest wolnych %d bajtów\n", free_count);
     printf("\n");
@@ -53,25 +53,25 @@ int heap_setup(void) {
     struct heap_t *pHeap = (struct heap_t *) sbrkPtr;
 
     struct element *pHead = (struct element *) ((uint8_t *) sbrkPtr +
-                                                sizeof(struct heap_t));              // Blok graniczny lewy
+                                                sizeof(struct heap_t));
     struct element *pTail = (struct element *) ((uint8_t *) sbrkPtr + size -
-                                                sizeof(struct element));// Blok graniczny prawy
+                                                sizeof(struct element));
 
     pHeap->p_head = pHead;
     pHeap->p_tail = pTail;
     pHeap->sbrk_size = size;
 
     pHeap->p_head->size = 0;
-    pHeap->p_head->free = 1;
-    pHeap->p_head->objectSum = calculateObjectSum(pHead);//dodac kazdy bajt struktury
+    pHeap->p_head->isFree = 1;
     pHeap->p_head->p_next = pTail;
     pHeap->p_head->p_prev = NULL;
+    pHeap->p_head->objectSum = calculateObjectSum(pHead);//dodac kazdy bajt struktury
 
     pHeap->p_tail->size = 0;
-    pHeap->p_tail->free = 1;
-    pHeap->p_tail->objectSum = calculateObjectSum(pTail);//dodac kazdy bajt struktury
+    pHeap->p_tail->isFree = 1;
     pHeap->p_tail->p_next = NULL;
     pHeap->p_tail->p_prev = pHead;
+    pHeap->p_tail->objectSum = calculateObjectSum(pTail);//dodac kazdy bajt struktury
 
 
     heap_manager_t = pHeap;
@@ -84,7 +84,7 @@ struct element *findFirstFreeElement(size_t size) {
     struct element *freeElement = heap_manager_t->p_head;
 
     while (1) {
-        if (freeElement->free == 1 && freeElement->size >= size) {
+        if (freeElement->isFree == 1 && freeElement->size >= size) {
             break;
         }
 
@@ -117,14 +117,26 @@ void *heap_malloc(size_t size) {
         firstFreeElement = findFirstFreeElement(size);
     }
 
-    firstFreeElement->free = 0;
+    firstFreeElement->isFree = 0;
     firstFreeElement->size = size;
 
     firstFreeElement->objectSum = calculateObjectSum(firstFreeElement);
+    setPlotekInBlock(firstFreeElement);
 
-    void *result = (uint8_t *) firstFreeElement + sizeof(struct element);
+    void *result = (uint8_t *) firstFreeElement + sizeof(struct element) + 2;
 
-    heap_show(heap_manager_t);
+    uint8_t *startCurrencyElement = ((uint8_t *) firstFreeElement + sizeof(struct element));
+    uint8_t *endCurrencyElement = (startCurrencyElement + 2 + firstFreeElement->size);
+
+    if (endCurrencyElement == startCurrencyElement) {
+        return result;
+    }
+
+    if (heap_validate() != 0) {
+        return NULL;
+    }
+
+    //heapShow(heap_manager_t);
     return result;
 }
 
@@ -133,7 +145,7 @@ int heapExpand(size_t size) {
         return 1;
     }
 
-    size_t sizeNeededForUserAndStruck = size + sizeof(struct element);
+    size_t sizeNeededForUserAndStruck = size + sizeof(struct element) + 4;
 
     if (custom_sbrk(sizeNeededForUserAndStruck) == (void *) -1) {
         return 1;
@@ -148,14 +160,14 @@ int heapExpand(size_t size) {
     newElement->p_next = heap_manager_t->p_tail;
     heap_manager_t->p_tail->p_prev->p_next = newElement;
     newElement->p_prev = heap_manager_t->p_tail->p_prev;
-    newElement->free = 1;
+    newElement->isFree = 1;
     newElement->objectSum = calculateObjectSum(newElement);
 
     heap_manager_t->p_tail->p_prev = newElement;
 
     newElement->p_prev->objectSum = calculateObjectSum(newElement->p_prev);
 
-    //heap_show(heap_manager_t);
+    //heapShow(heap_manager_t);
 
     return 0;
 }
@@ -164,7 +176,15 @@ void *heap_calloc(size_t number, size_t size) {
     if (size > 0 || number > 0) {
         NULL;
     }
-    return NULL;
+
+    void *newHeap = heap_malloc(number * size);
+    if (!newHeap) {
+        return NULL;
+    }
+
+    memset(newHeap, 0, number * size);
+
+    return newHeap;
 
 }
 
@@ -177,10 +197,15 @@ void *heap_realloc(void *memblock, size_t count) {
 }
 
 void heap_free(void *memblock) {
-    if (!memblock) {
+    if (!memblock || !heap_manager_t || heap_validate()!=0) {
         return;
     }
 
+    struct element *pblock = (struct element *) ((uint8_t *) memblock - sizeof(struct element) - 2);
+    pblock->isFree = 1;
+    pblock->size = pblock->size;
+
+    pblock->objectSum = calculateObjectSum(pblock);
 }
 
 enum pointer_type_t get_pointer_type(const void *const pointer) {
@@ -199,20 +224,108 @@ enum pointer_type_t get_pointer_type(const void *const pointer) {
     //if (check_if_ptr_is_in_user_memory(pointer))
     //    return pointer_inside_data_block;// 4
 //
-    //if (!check_if_ptr_is_allocated(pointer))
-    //    return pointer_unallocated;// 5
+    if (checkIfPointerIsAllocated(pointer) == 0) {
+        return pointer_unallocated;// 5
+    }
 
     return pointer_valid;// 6
 
 }
 
+int checkIfPointerIsAllocated(const void *const pVoid) {
+
+    struct element *current = heap_manager_t->p_head;
+
+    while (current != NULL) {
+
+        if ((intptr_t) current > (intptr_t) pVoid) {
+            return 0;
+        }
+
+        intptr_t startCurrencyElement = (intptr_t) ((uint8_t *) current + sizeof(struct element) + 2);
+        intptr_t endCurrencyElement = startCurrencyElement + current->size;
+        //heapShow(heap_manager_t);
+
+        if (startCurrencyElement <= (intptr_t) pVoid && endCurrencyElement > (intptr_t) pVoid) {
+            if (current->isFree == 0) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+
+        current = current->p_next;
+    }
+
+    return 0;
+}
+
 int heap_validate(void) {
+    if (!heap_manager_t) {
+        return 2;
+    }
+
+    struct element *current = heap_manager_t->p_head->p_next;
+
+    while (current != heap_manager_t->p_tail) {
+
+        if (calculateObjectSum(current) != current->objectSum) {
+            return 1;
+        }
+
+
+        uint8_t *startCurrencyElement = ((uint8_t *) current + sizeof(struct element));
+        uint8_t *endCurrencyElement = (startCurrencyElement + 2 + current->size);
+
+        for (int i = 0; i < 2; i++) {
+            if (*(startCurrencyElement + i) != '#') {
+                return 1;
+            }
+        }
+
+        for (int i = 0; i < 2; i++) {
+            if (*(endCurrencyElement + i) != '#') {
+                return 1;
+            }
+
+        }
+
+        //uint8_t *startCurrencyElement = ((uint8_t *) current + sizeof(struct element));
+        //uint8_t *endCurrencyElement = startCurrencyElement + current->size + 2;
+//
+        //for (int i = 0; i < 2; i++) {
+        //    if (*(startCurrencyElement + i) != '#' || *(endCurrencyElement + i) != '#') {
+        //        return 1;
+        //    }
+        //}
+//
+        current = current->p_next;
+    }
+
 
     return 0;
 }
 
 size_t heap_get_largest_used_block_size(void) {
-    return 1;
+    if (heap_validate() != 0) {
+        return 0;
+    }
+
+    struct element *current = heap_manager_t->p_head;
+    struct element *result = current;
+
+    while (current != NULL) {
+
+        //heapShow(heap_manager_t);
+
+        if ((current->size > result->size) && current->isFree == 0) {
+            result = current;
+        }
+
+        current = current->p_next;
+    }
+
+    return result->size;
 
 }
 
@@ -243,8 +356,7 @@ int calculateObjectSum(struct element *ptr) {
     return sum;
 }
 
-void setPlotekInBlock(struct element *ptr)
-{
+void setPlotekInBlock(struct element *ptr) {
     if (ptr == NULL || heap_manager_t == NULL)
         return;
 
@@ -253,13 +365,13 @@ void setPlotekInBlock(struct element *ptr)
 
 
     uint8_t *leftPlotek = ((uint8_t *) ptr + sizeof(struct element));
-    uint8_t *rightPlotek = ((uint8_t *) ptr + sizeof(struct element) + 2 + ptr->size);
+    uint8_t *rightPlotek = (leftPlotek + 2 + ptr->size);
 
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 2; i++) {
         *(leftPlotek + i) = '#';
     }
 
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 2; i++) {
         *(rightPlotek + i) = '#';
 
     }

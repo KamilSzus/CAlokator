@@ -48,8 +48,11 @@ struct element *findFirstFreeElement(size_t size);
 
 int heapExpand(size_t size);
 
-void heap_show(const struct heap_t *pheap);
+void heapShow(const struct heap_t *pheap);
 
 void setPlotekInBlock(struct element *ptr);
+
+int checkIfPointerIsAllocated(const void *const pVoid);
+
 
 #endif //SO2_HEAP_H
