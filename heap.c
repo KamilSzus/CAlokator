@@ -197,7 +197,7 @@ void *heap_realloc(void *memblock, size_t count) {
 }
 
 void heap_free(void *memblock) {
-    if (!memblock || !heap_manager_t || heap_validate()!=0) {
+    if (!memblock || !heap_manager_t || get_pointer_type(memblock) != 6) {
         return;
     }
 
@@ -209,11 +209,28 @@ void heap_free(void *memblock) {
 }
 
 enum pointer_type_t get_pointer_type(const void *const pointer) {
-    if (pointer == NULL)
+    if (pointer == NULL) {
         return pointer_null;// 0
+    }
 
-    if (heap_validate())
+    if (heap_validate()) {
         return pointer_heap_corrupted;// 1
+    }
+
+    struct element *current = heap_manager_t->p_head->p_next;
+
+    while (current != heap_manager_t->p_tail) {
+
+        intptr_t startCurrencyElement = (intptr_t) ((uint8_t *) current);
+        intptr_t endCurrencyElement = startCurrencyElement + sizeof(struct element);
+
+        if (startCurrencyElement <= (intptr_t) pointer && endCurrencyElement > (intptr_t) pointer) {
+            return pointer_control_block;
+        }
+
+        current = current->p_next;
+    }
+
 
     //if (check_if_ptr_is_in_block_t(pointer) || check_if_ptr_is_in_heap_t(pointer))
     //    return pointer_control_block;// 2
