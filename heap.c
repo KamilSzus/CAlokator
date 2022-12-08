@@ -201,11 +201,43 @@ void heap_free(void *memblock) {
         return;
     }
 
-    struct element *pblock = (struct element *) ((uint8_t *) memblock - sizeof(struct element) - 2);
-    pblock->isFree = 1;
-    pblock->size = pblock->size;
+    struct element *pElement = (struct element *) ((uint8_t *) memblock - sizeof(struct element) - 2);
+    pElement->isFree = 1;
+    pElement->size = pElement->size;
 
-    pblock->objectSum = calculateObjectSum(pblock);
+    pElement->objectSum = calculateObjectSum(pElement);
+    //heapShow(heap_manager_t);
+    if (pElement->p_next->isFree && pElement->p_next != heap_manager_t->p_tail) {
+        //pElement->size += pElement->p_next->size ;
+        pElement->size += pElement->p_next->size + (sizeof(struct element) + 2 * 2);
+
+        struct element *pNext = pElement->p_next->p_next;
+
+        pElement->p_next = pNext;
+        pNext->p_prev = pElement;
+
+        pNext->objectSum = calculateObjectSum(pNext);
+        pElement->objectSum = calculateObjectSum(pElement);
+
+        setPlotekInBlock(pElement);
+        //heapShow(heap_manager_t);
+    }
+
+    if (pElement->p_prev->isFree && pElement->p_prev != heap_manager_t->p_head) {
+        struct element *pPrev = pElement->p_prev;
+        pPrev->size += pElement->size + (sizeof(struct element) + 2 * 2);
+
+        // pElement->p_prev = pPrev;
+        pElement->p_next->p_prev = pPrev;
+        pPrev->p_next = pElement->p_next;
+
+        pPrev->objectSum = calculateObjectSum(pPrev);
+        pPrev->p_next->objectSum = calculateObjectSum(pPrev->p_next);
+
+        setPlotekInBlock(pPrev);
+        //   heapShow(heap_manager_t);
+    }
+
 }
 
 enum pointer_type_t get_pointer_type(const void *const pointer) {
@@ -231,7 +263,25 @@ enum pointer_type_t get_pointer_type(const void *const pointer) {
         current = current->p_next;
     }
 
+    current = heap_manager_t->p_head->p_next;
 
+    while (current != heap_manager_t->p_tail) {
+
+        if (current->isFree) {
+            current = current->p_next;
+            continue;
+        }
+
+        intptr_t startCurrencyElement = (intptr_t) ((uint8_t *) current) + sizeof(struct element) +
+                                        3;//dodac trzeba dwa plotki plus przesunąć o 1 bajt w pamieci
+        intptr_t endCurrencyElement = startCurrencyElement + current->size;
+
+        if (startCurrencyElement <= (intptr_t) pointer && endCurrencyElement > (intptr_t) pointer) {
+            return pointer_inside_data_block;
+        }
+
+        current = current->p_next;
+    }
     //if (check_if_ptr_is_in_block_t(pointer) || check_if_ptr_is_in_heap_t(pointer))
     //    return pointer_control_block;// 2
 //
