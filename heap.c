@@ -19,7 +19,9 @@ struct element {
     struct element *p_prev;// 8
     struct element *p_next;// 8
 
-    size_t size; //zalokowana ilość pamięci
+    size_t size; //ilość pamięci
+    size_t sizeAllocated; //zalokowana ilość pamięci
+
     short isFree; // 1-wolny; 0- zajety
     int objectSum;
 }__attribute__((aligned(8)));
@@ -62,12 +64,14 @@ int heap_setup(void) {
     pHeap->sbrk_size = size;
 
     pHeap->p_head->size = 0;
+    pHeap->p_head->sizeAllocated = 0;
     pHeap->p_head->isFree = 1;
     pHeap->p_head->p_next = pTail;
     pHeap->p_head->p_prev = NULL;
     pHeap->p_head->objectSum = calculateObjectSum(pHead);//dodac kazdy bajt struktury
 
     pHeap->p_tail->size = 0;
+    pHeap->p_tail->sizeAllocated = 0;
     pHeap->p_tail->isFree = 1;
     pHeap->p_tail->p_next = NULL;
     pHeap->p_tail->p_prev = pHead;
@@ -157,6 +161,7 @@ int heapExpand(size_t size) {
     heap_manager_t->sbrk_size += sizeNeededForUserAndStruck;
 
     newElement->size = size;
+    newElement->sizeAllocated = size;
     newElement->p_next = heap_manager_t->p_tail;
     heap_manager_t->p_tail->p_prev->p_next = newElement;
     newElement->p_prev = heap_manager_t->p_tail->p_prev;
@@ -203,7 +208,7 @@ void heap_free(void *memblock) {
 
     struct element *pElement = (struct element *) ((uint8_t *) memblock - sizeof(struct element) - 2);
     pElement->isFree = 1;
-    pElement->size = pElement->size;
+    pElement->size = pElement->sizeAllocated;
 
     pElement->objectSum = calculateObjectSum(pElement);
     //heapShow(heap_manager_t);
@@ -242,11 +247,11 @@ void heap_free(void *memblock) {
 
 enum pointer_type_t get_pointer_type(const void *const pointer) {
     if (pointer == NULL) {
-        return pointer_null;// 0
+        return pointer_null;
     }
 
     if (heap_validate()) {
-        return pointer_heap_corrupted;// 1
+        return pointer_heap_corrupted;
     }
 
     struct element *current = heap_manager_t->p_head->p_next;
@@ -264,6 +269,28 @@ enum pointer_type_t get_pointer_type(const void *const pointer) {
     }
 
     current = heap_manager_t->p_head->p_next;
+    while (current != heap_manager_t->p_tail) {
+
+        if (current->isFree) {
+            current = current->p_next;
+            continue;
+        }
+        intptr_t startCurrencyElement = (intptr_t) ((uint8_t *) current) + sizeof(struct element);
+        intptr_t endCurrencyElement = startCurrencyElement + current->size + 2;
+
+        if (startCurrencyElement <= (intptr_t) pointer && startCurrencyElement + 2 > (intptr_t) pointer) {
+            return pointer_inside_fences;
+        }
+
+        if (endCurrencyElement <= (intptr_t) pointer && endCurrencyElement + 2 > (intptr_t) pointer) {
+            return pointer_inside_fences;
+        }
+
+        current = current->p_next;
+    }
+
+
+    current = heap_manager_t->p_head->p_next;
 
     while (current != heap_manager_t->p_tail) {
 
@@ -271,7 +298,6 @@ enum pointer_type_t get_pointer_type(const void *const pointer) {
             current = current->p_next;
             continue;
         }
-
         intptr_t startCurrencyElement = (intptr_t) ((uint8_t *) current) + sizeof(struct element) +
                                         3;//dodac trzeba dwa plotki plus przesunąć o 1 bajt w pamieci
         intptr_t endCurrencyElement = startCurrencyElement + current->size;
@@ -282,20 +308,12 @@ enum pointer_type_t get_pointer_type(const void *const pointer) {
 
         current = current->p_next;
     }
-    //if (check_if_ptr_is_in_block_t(pointer) || check_if_ptr_is_in_heap_t(pointer))
-    //    return pointer_control_block;// 2
-//
-    //if (check_if_ptr_is_in_plotki(pointer))
-    //    return pointer_inside_fences;// 3
-//
-    //if (check_if_ptr_is_in_user_memory(pointer))
-    //    return pointer_inside_data_block;// 4
-//
+
     if (checkIfPointerIsAllocated(pointer) == 0) {
-        return pointer_unallocated;// 5
+        return pointer_unallocated;
     }
 
-    return pointer_valid;// 6
+    return pointer_valid;
 
 }
 
@@ -337,9 +355,8 @@ int heap_validate(void) {
     while (current != heap_manager_t->p_tail) {
 
         if (calculateObjectSum(current) != current->objectSum) {
-            return 1;
+            return 3;
         }
-
 
         uint8_t *startCurrencyElement = ((uint8_t *) current + sizeof(struct element));
         uint8_t *endCurrencyElement = (startCurrencyElement + 2 + current->size);
@@ -357,15 +374,6 @@ int heap_validate(void) {
 
         }
 
-        //uint8_t *startCurrencyElement = ((uint8_t *) current + sizeof(struct element));
-        //uint8_t *endCurrencyElement = startCurrencyElement + current->size + 2;
-//
-        //for (int i = 0; i < 2; i++) {
-        //    if (*(startCurrencyElement + i) != '#' || *(endCurrencyElement + i) != '#') {
-        //        return 1;
-        //    }
-        //}
-//
         current = current->p_next;
     }
 
