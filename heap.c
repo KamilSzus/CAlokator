@@ -11,7 +11,6 @@ struct heap_t {
     struct element *pHead;// 8
     struct element *pTail;// 8
 
-    //intptr_t sbrk_start;  // 8
     intptr_t sbrkSize;   // 8
 } __attribute__((aligned(8)));
 
@@ -65,14 +64,14 @@ int heap_setup(void) {
 
     pHeap->pHead->size = 0;
     pHeap->pHead->sizeAllocated = 0;
-    pHeap->pHead->isFree = 1;
+    pHeap->pHead->isFree = 0;
     pHeap->pHead->pNext = pTail;
     pHeap->pHead->pPrev = NULL;
     pHeap->pHead->objectSum = calculateObjectSum(pHead);//dodac kazdy bajt struktury
 
     pHeap->pTail->size = 0;
     pHeap->pTail->sizeAllocated = 0;
-    pHeap->pTail->isFree = 1;
+    pHeap->pTail->isFree = 0;
     pHeap->pTail->pNext = NULL;
     pHeap->pTail->pPrev = pHead;
     pHeap->pTail->objectSum = calculateObjectSum(pTail);//dodac kazdy bajt struktury
@@ -194,12 +193,17 @@ void *heap_calloc(size_t number, size_t size) {
 }
 
 void *heap_realloc(void *memblock, size_t count) {
-    if (count > 0 || heap_validate()) {
+    if (count == 0) {
+        heap_free(memblock);
         return NULL;
     }
 
-    if (count == 0) {
-        heap_free(memblock);
+    enum pointer_type_t pointer_type = get_pointer_type(memblock);
+    if ((pointer_type != pointer_null && pointer_type != pointer_valid)) {
+        return NULL;
+    }
+
+    if (heap_validate()) {
         return NULL;
     }
 
@@ -222,11 +226,91 @@ void *heap_realloc(void *memblock, size_t count) {
             return NULL;
         }
 
+        intptr_t startNextElement = (intptr_t) ((uint8_t *) pElement->pNext);
+        intptr_t endNextElement = startNextElement + sizeof(struct element) + 4 + pElement->pNext->size;
 
+        if (endNextElement - startNextElement < (intptr_t) sizeof(struct element) + 4) {
+
+            struct element *futureNextElement = (struct element *) ((uint8_t *) pElement + 2 + sizeof(struct element) +
+                                                                    count);
+            memcpy(futureNextElement, pElement->pNext, sizeof(struct element));
+
+            futureNextElement->size =
+                    (intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement - sizeof(struct element) + 4;
+            futureNextElement->sizeAllocated =
+                    (intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement - sizeof(struct element) + 4;
+
+            pElement->size = count;
+            pElement->sizeAllocated = count;
+
+            futureNextElement->pPrev = pElement;
+            pElement->pNext = futureNextElement;
+
+
+            pElement->objectSum = calculateObjectSum(pElement);
+            futureNextElement->objectSum = calculateObjectSum(futureNextElement);
+            futureNextElement->pNext->objectSum = calculateObjectSum(futureNextElement->pNext);
+
+            setPlotekInBlock(futureNextElement);
+            setPlotekInBlock(pElement);
+        } else {
+
+            pElement->size += pElement->pNext->size;
+            pElement->sizeAllocated += pElement->pNext->sizeAllocated;
+
+            pElement->pNext = pElement->pNext->pNext;
+            pElement->pNext->pPrev = pElement;
+
+            pElement->objectSum = calculateObjectSum(pElement);
+            setPlotekInBlock(pElement);
+
+        }
 
         return memblock;
-    } else if (pElement->size + pElement->pNext->size >= count + sizeof(struct element) + 2 * 2 &&
+    } else if (pElement->sizeAllocated + pElement->pNext->sizeAllocated + sizeof(struct element) + 4 +
+               sizeof(struct element) + 4 >= count + sizeof(struct element) + 4 &&
                pElement->pNext->isFree) {
+
+        intptr_t startNextElement = (intptr_t) ((uint8_t *) pElement->pNext);
+        intptr_t endNextElement = startNextElement + sizeof(struct element) + 4 + pElement->pNext->size;
+
+        if (endNextElement - startNextElement < (intptr_t) sizeof(struct element) + 4) {
+
+            struct element *futureNextElement = (struct element *) ((uint8_t *) pElement + 2 + sizeof(struct element) +
+                                                                    count);
+            memcpy(futureNextElement, pElement->pNext, sizeof(struct element));
+
+            futureNextElement->size =
+                    (intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement - sizeof(struct element) + 4;
+            futureNextElement->sizeAllocated =
+                    (intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement - sizeof(struct element) + 4;
+
+            pElement->size = count;
+            pElement->sizeAllocated = count;
+
+            futureNextElement->pPrev = pElement;
+            pElement->pNext = futureNextElement;
+
+
+            pElement->objectSum = calculateObjectSum(pElement);
+            futureNextElement->objectSum = calculateObjectSum(futureNextElement);
+            futureNextElement->pNext->objectSum = calculateObjectSum(futureNextElement->pNext);
+
+            setPlotekInBlock(futureNextElement);
+            setPlotekInBlock(pElement);
+        } else {
+
+            pElement->size = count;
+            pElement->sizeAllocated += pElement->pNext->sizeAllocated;
+
+            pElement->pNext = pElement->pNext->pNext;
+            pElement->pNext->pPrev = pElement;
+
+            pElement->objectSum = calculateObjectSum(pElement);
+            pElement->pNext->objectSum = calculateObjectSum(pElement->pNext);
+
+            setPlotekInBlock(pElement);
+        }
 
         return memblock;
     } else {
@@ -405,13 +489,9 @@ int heap_validate(void) {
             if (*(startCurrencyElement + i) != '#') {
                 return 1;
             }
-        }
-
-        for (int i = 0; i < 2; i++) {
             if (*(endCurrencyElement + i) != '#') {
                 return 1;
             }
-
         }
 
         current = current->pNext;
