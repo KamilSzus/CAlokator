@@ -188,6 +188,10 @@ void *heap_calloc(size_t number, size_t size) {
 
     memset(newHeap, 0, number * size);
 
+    if (heap_validate() != 0) {
+        return NULL;
+    }
+
     return newHeap;
 
 }
@@ -203,7 +207,7 @@ void *heap_realloc(void *memblock, size_t count) {
         return NULL;
     }
 
-    if (heap_validate()) {
+    if (heap_validate() != 0) {
         return NULL;
     }
 
@@ -231,19 +235,22 @@ void *heap_realloc(void *memblock, size_t count) {
 
         if (endNextElement - startNextElement < (intptr_t) sizeof(struct element) + 4) {
 
-            struct element *futureNextElement = (struct element *) ((uint8_t *) pElement + 2 + sizeof(struct element) +
+            struct element *futureNextElement = (struct element *) ((uint8_t *) pElement + 4 + sizeof(struct element) +
                                                                     count);
-            memcpy(futureNextElement, pElement->pNext, sizeof(struct element));
+            memcpy(futureNextElement, pElement->pNext, sizeof(struct element));//potencjalnie tutaj
 
             futureNextElement->size =
-                    (intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement - sizeof(struct element) + 4;
-            futureNextElement->sizeAllocated =
-                    (intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement - sizeof(struct element) + 4;
+                    ((intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement) -
+                    sizeof(struct element) + 4;
+            //xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+            //^                      ^
+            futureNextElement->sizeAllocated = futureNextElement->size;
 
             pElement->size = count;
             pElement->sizeAllocated = count;
 
             futureNextElement->pPrev = pElement;
+            futureNextElement->pNext->pPrev = futureNextElement;
             pElement->pNext = futureNextElement;
 
 
@@ -253,17 +260,30 @@ void *heap_realloc(void *memblock, size_t count) {
 
             setPlotekInBlock(futureNextElement);
             setPlotekInBlock(pElement);
+            if (heap_validate() != 0) {
+                return NULL;
+            }
         } else {
 
-            pElement->size += pElement->pNext->size;
-            pElement->sizeAllocated += pElement->pNext->sizeAllocated;
+            pElement->size = count;
+            pElement->sizeAllocated = pElement->size;
 
             pElement->pNext = pElement->pNext->pNext;
             pElement->pNext->pPrev = pElement;
 
             pElement->objectSum = calculateObjectSum(pElement);
-            setPlotekInBlock(pElement);
+            pElement->pNext->objectSum = calculateObjectSum(pElement->pNext);
+            pElement->pNext->pPrev->objectSum = calculateObjectSum(pElement->pNext->pPrev);
 
+            setPlotekInBlock(pElement);
+            if (heap_validate() != 0) {
+                return NULL;
+            }
+
+        }
+
+        if (heap_validate() != 0) {
+            return NULL;
         }
 
         return memblock;
@@ -276,19 +296,22 @@ void *heap_realloc(void *memblock, size_t count) {
 
         if (endNextElement - startNextElement < (intptr_t) sizeof(struct element) + 4) {
 
-            struct element *futureNextElement = (struct element *) ((uint8_t *) pElement + 2 + sizeof(struct element) +
+            struct element *futureNextElement = (struct element *) ((uint8_t *) pElement + 4 + sizeof(struct element) +
                                                                     count);
+
             memcpy(futureNextElement, pElement->pNext, sizeof(struct element));
 
             futureNextElement->size =
-                    (intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement - sizeof(struct element) + 4;
-            futureNextElement->sizeAllocated =
-                    (intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement - sizeof(struct element) + 4;
+                    ((intptr_t) futureNextElement->pNext - (intptr_t) futureNextElement) -
+                    sizeof(struct element) + 4;
+
+            futureNextElement->sizeAllocated = futureNextElement->size;
 
             pElement->size = count;
             pElement->sizeAllocated = count;
 
             futureNextElement->pPrev = pElement;
+            futureNextElement->pNext->pPrev = futureNextElement;
             pElement->pNext = futureNextElement;
 
 
@@ -298,18 +321,25 @@ void *heap_realloc(void *memblock, size_t count) {
 
             setPlotekInBlock(futureNextElement);
             setPlotekInBlock(pElement);
+            if (heap_validate() != 0) {
+                return NULL;
+            }
         } else {
 
             pElement->size = count;
-            pElement->sizeAllocated += pElement->pNext->sizeAllocated;
+            pElement->sizeAllocated = pElement->size;
 
             pElement->pNext = pElement->pNext->pNext;
             pElement->pNext->pPrev = pElement;
 
             pElement->objectSum = calculateObjectSum(pElement);
             pElement->pNext->objectSum = calculateObjectSum(pElement->pNext);
+            pElement->pNext->pPrev->objectSum = calculateObjectSum(pElement->pNext->pPrev);
 
             setPlotekInBlock(pElement);
+            if (heap_validate() != 0) {
+                return NULL;
+            }
         }
 
         return memblock;
@@ -321,6 +351,9 @@ void *heap_realloc(void *memblock, size_t count) {
         memcpy(pNew, memblock, pElement->size);
         heap_free(memblock);
 
+        if (heap_validate() != 0) {
+            return NULL;
+        }
         return pNew;
     }
 }
@@ -339,6 +372,7 @@ void heap_free(void *memblock) {
     if (pElement->pNext->isFree && pElement->pNext != heapManagerT->pTail) {
         //pElement->size += pElement->pNext->size ;
         pElement->size += pElement->pNext->size + (sizeof(struct element) + 2 * 2);
+        pElement->sizeAllocated = pElement->size;
 
         struct element *pNext = pElement->pNext->pNext;
 
@@ -355,6 +389,7 @@ void heap_free(void *memblock) {
     if (pElement->pPrev->isFree && pElement->pPrev != heapManagerT->pHead) {
         struct element *pPrev = pElement->pPrev;
         pPrev->size += pElement->size + (sizeof(struct element) + 2 * 2);
+        pPrev->sizeAllocated = pPrev->size;
 
         // pElement->pPrev = pPrev;
         pElement->pNext->pPrev = pPrev;
@@ -546,7 +581,6 @@ int calculateObjectSum(struct element *ptr) {
     for (size_t i = 0; i < sizeof(struct element) - 4; i++) {
         sum += *(one_byte + i);
     }
-
 
     return sum;
 }
